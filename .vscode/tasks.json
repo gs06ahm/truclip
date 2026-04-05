@@ -1,0 +1,68 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "CMake Configure (Debug)",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--preset", "windows-debug"],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared"
+      },
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "CMake Build (Debug)",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "--preset", "windows-debug"],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "dependsOn": "CMake Configure (Debug)",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared"
+      },
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "CMake Configure (Release)",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--preset", "windows-release"],
+      "group": "build",
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "CMake Build (Release)",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "--preset", "windows-release"],
+      "group": "build",
+      "dependsOn": "CMake Configure (Release)",
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "Build MSI Installer (Release)",
+      "type": "shell",
+      "command": "wix",
+      "args": [
+        "build", "installer\\truclip.wxs",
+        "-d", "ProductVersion=1.0.0",
+        "-d", "VST3Dir=build\\VST3\\Release\\truclip.vst3",
+        "-o", "truclip-1.0.0-windows.msi"
+      ],
+      "group": "build",
+      "dependsOn": "CMake Build (Release)",
+      "problemMatcher": []
+    }
+  ]
+}

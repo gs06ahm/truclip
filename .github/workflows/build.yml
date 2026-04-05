@@ -1,0 +1,44 @@
+# CI workflow — runs on every push and pull-request to any branch.
+# Builds the VST3 plugin in Release mode and uploads it as a workflow artifact.
+
+name: Build
+
+on:
+  push:
+    branches: ["**"]
+    tags-ignore: ["**"]   # releases are handled by release.yml
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Windows x64 Release
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      # Cache the VST3 SDK download to avoid re-cloning on every run.
+      - name: Cache CMake FetchContent downloads
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: vst3sdk-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: |
+            vst3sdk-${{ runner.os }}-
+
+      - name: Configure CMake
+        run: cmake --preset windows-release
+
+      - name: Build plugin
+        run: cmake --build --preset windows-release
+
+      - name: Upload VST3 bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: truclip-vst3-${{ github.sha }}
+          path: build/VST3/Release/truclip.vst3/
+          if-no-files-found: error
