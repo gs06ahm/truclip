@@ -1,0 +1,126 @@
+# Release workflow — triggered when a version tag (e.g. v1.0.0) is pushed.
+#
+# Steps:
+#   1. Build the VST3 plugin in Release mode.
+#   2. Build the Windows MSI installer with WiX v4.
+#   3. Update the download link in README.md and push the change to main.
+#   4. Publish a GitHub Release with the MSI as a downloadable asset.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Publish Release
+    runs-on: windows-latest
+
+    steps:
+      # -----------------------------------------------------------------------
+      # 1. Checkout — full history so we can push back to main.
+      # -----------------------------------------------------------------------
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # -----------------------------------------------------------------------
+      # 2. Derive version string from the tag (strips the leading "v").
+      # -----------------------------------------------------------------------
+      - name: Extract version from tag
+        id: meta
+        shell: pwsh
+        run: |
+          $tag     = "${{ github.ref_name }}"
+          $version = $tag -replace '^v', ''
+          "tag=$tag"         | Out-File -Append $env:GITHUB_OUTPUT
+          "version=$version" | Out-File -Append $env:GITHUB_OUTPUT
+
+      # -----------------------------------------------------------------------
+      # 3. Cache the VST3 SDK to avoid re-cloning on every release.
+      # -----------------------------------------------------------------------
+      - name: Cache CMake FetchContent downloads
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: vst3sdk-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: |
+            vst3sdk-${{ runner.os }}-
+
+      # -----------------------------------------------------------------------
+      # 4. Build the VST3 plugin.
+      # -----------------------------------------------------------------------
+      - name: Configure CMake
+        run: cmake --preset windows-release
+
+      - name: Build plugin
+        run: cmake --build --preset windows-release
+
+      # -----------------------------------------------------------------------
+      # 5. Build the MSI installer with WiX v4.
+      # -----------------------------------------------------------------------
+      - name: Install WiX Toolset v4
+        run: dotnet tool install --global wix --version 4.0.5
+
+      - name: Build MSI installer
+        shell: pwsh
+        run: |
+          $version = "${{ steps.meta.outputs.version }}"
+          wix build installer\truclip.wxs `
+            -d "ProductVersion=$version" `
+            -d "VST3Dir=build\VST3\Release\truclip.vst3" `
+            -o "truclip-$version-windows.msi"
+
+      # -----------------------------------------------------------------------
+      # 6. Update the download link in README.md on the main branch.
+      #    The tag checkout is on a detached HEAD, so we switch to main,
+      #    apply the edit, and push it back before creating the release.
+      # -----------------------------------------------------------------------
+      - name: Update README download link on main
+        shell: pwsh
+        run: |
+          $version = "${{ steps.meta.outputs.version }}"
+          $tag     = "${{ steps.meta.outputs.tag }}"
+          $repo    = "${{ github.repository }}"
+          $msiName = "truclip-$version-windows.msi"
+          $url     = "https://github.com/$repo/releases/download/$tag/$msiName"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Switch to main (the MSI lives outside the git tree, so it survives).
+          git fetch origin main
+          git checkout main
+
+          # Replace the placeholder block in README.md.
+          $readme = Get-Content README.md -Raw
+          $readme = $readme -replace (
+            '(?s)<!-- LATEST_RELEASE_URL -->.*?<!-- /LATEST_RELEASE_URL -->',
+            "<!-- LATEST_RELEASE_URL -->$url<!-- /LATEST_RELEASE_URL -->"
+          )
+          Set-Content README.md $readme -NoNewline
+
+          git add README.md
+          # Only commit if there's an actual change.
+          $changed = (git diff --cached --name-only) -ne ""
+          if ($changed) {
+            git commit -m "docs: update download link for $tag [skip ci]"
+            git push origin main
+          }
+
+      # -----------------------------------------------------------------------
+      # 7. Publish the GitHub Release with the MSI attached.
+      # -----------------------------------------------------------------------
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name:              ${{ steps.meta.outputs.tag }}
+          name:                  "TruClip ${{ steps.meta.outputs.tag }}"
+          generate_release_notes: true
+          files: truclip-${{ steps.meta.outputs.version }}-windows.msi
